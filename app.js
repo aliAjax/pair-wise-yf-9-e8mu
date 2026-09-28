@@ -1,8 +1,16 @@
 const storageKey = "zfl18-boardgame-rule-cards";
 const today = new Date();
 
+const ruleLabels = {
+  forgets: "易忘",
+  disputes: "争议",
+  setup: "准备",
+  scoring: "计分"
+};
+
 const defaultState = {
   selectedId: "",
+  checklist: [],
   games: [
     {
       id: crypto.randomUUID(),
@@ -50,6 +58,7 @@ const defaultState = {
 };
 
 let state = loadState();
+if (!Array.isArray(state.checklist)) state.checklist = [];
 if (!state.selectedId) state.selectedId = state.games[0]?.id || "";
 
 const els = {
@@ -70,8 +79,15 @@ const els = {
   gameCount: document.querySelector("#gameCount"),
   ruleCount: document.querySelector("#ruleCount"),
   staleGame: document.querySelector("#staleGame"),
-  visibleCount: document.querySelector("#visibleCount")
+  visibleCount: document.querySelector("#visibleCount"),
+  checklistView: document.querySelector("#checklistView"),
+  checklistProgress: document.querySelector("#checklistProgress"),
+  progressBar: document.querySelector("#progressBar"),
+  invalidCount: document.querySelector("#invalidCount"),
+  clearChecklistBtn: document.querySelector("#clearChecklistBtn")
 };
+
+let editingRule = null;
 
 function loadState() {
   const saved = localStorage.getItem(storageKey);
@@ -85,6 +101,52 @@ function loadState() {
 
 function saveState() {
   localStorage.setItem(storageKey, JSON.stringify(state));
+}
+
+function buildChecklistItems(game) {
+  return Object.keys(ruleLabels).flatMap((key) =>
+    game[key].map((text) => ({ key, text, checked: false, stale: false }))
+  );
+}
+
+// 以加入清单时的规则快照为基准同步：游戏里新增的规则追加进清单，
+// 快照里已被删除或被改写的规则标记为失效，勾选随之作废。
+function syncChecklist() {
+  state.checklist = state.checklist.map((entry) => {
+    const game = state.games.find((item) => item.id === entry.gameId);
+    if (!game) {
+      return {
+        ...entry,
+        removed: true,
+        items: entry.items.map((item) => ({ ...item, checked: false, stale: true }))
+      };
+    }
+    const items = entry.items.map((item) => {
+      const live = game[item.key]?.includes(item.text);
+      return { ...item, stale: !live, checked: live ? !!item.checked : false };
+    });
+    Object.keys(ruleLabels).forEach((key) => {
+      game[key].forEach((text) => {
+        if (!items.some((item) => item.key === key && item.text === text)) {
+          items.push({ key, text, checked: false, stale: false });
+        }
+      });
+    });
+    return { ...entry, removed: false, items };
+  });
+}
+
+function toggleChecklistGame(gameId) {
+  const exists = state.checklist.some((entry) => entry.gameId === gameId);
+  if (exists) {
+    state.checklist = state.checklist.filter((entry) => entry.gameId !== gameId);
+  } else {
+    const game = state.games.find((item) => item.id === gameId);
+    if (!game) return;
+    state.checklist.push({ gameId, items: buildChecklistItems(game) });
+  }
+  syncChecklist();
+  renderAll();
 }
 
 function daysSince(dateString) {
@@ -131,8 +193,12 @@ function renderList() {
     games
       .map((game) => {
         const selected = game.id === state.selectedId ? "selected" : "";
+        const inList = state.checklist.some((entry) => entry.gameId === game.id);
         return `
           <article class="game-card ${selected}" data-game-id="${game.id}">
+            <button type="button" class="add-tonight ${inList ? "in-list" : ""}" data-toggle-checklist="${game.id}">
+              ${inList ? "✓ 已在今晚" : "＋ 加入今晚"}
+            </button>
             <div class="cover">
               ${
                 game.cover
@@ -162,6 +228,7 @@ function renderDetail() {
     return;
   }
   state.selectedId = game.id;
+  const inList = state.checklist.some((entry) => entry.gameId === game.id);
   els.detailView.innerHTML = `
     <div class="quick-card">
       <div class="detail-cover">
@@ -192,6 +259,7 @@ function renderDetail() {
       </form>
       <div class="detail-actions">
         <button id="playedTodayBtn" type="button">标记今天玩过</button>
+        <button id="toggleChecklistDetailBtn" type="button">${inList ? "移出今晚清单" : "加入今晚清单"}</button>
         <button id="deleteGameBtn" type="button">删除桌游</button>
       </div>
     </div>
@@ -205,14 +273,31 @@ function renderRuleSection(title, key, items) {
       <ul class="rule-list">
         ${
           items
-            .map(
-              (item, index) => `
+            .map((item, index) => {
+              const isEditing = editingRule && editingRule.key === key && editingRule.index === index;
+              if (isEditing) {
+                return `
+                  <li>
+                    <form class="rule-editor" data-rule-key="${key}" data-rule-index="${index}">
+                      <textarea rows="2" data-edit-textarea>${escapeHtml(item)}</textarea>
+                      <div class="editor-actions">
+                        <button class="primary" type="submit">保存</button>
+                        <button type="button" data-edit-cancel>取消</button>
+                      </div>
+                    </form>
+                  </li>
+                `;
+              }
+              return `
                 <li>
-                  <span>${escapeHtml(item)}</span>
-                  <button type="button" title="删除" data-rule-key="${key}" data-rule-index="${index}">×</button>
+                  <span class="rule-text">${escapeHtml(item)}</span>
+                  <span class="rule-row-actions">
+                    <button type="button" title="编辑" data-rule-edit-key="${key}" data-rule-edit-index="${index}">✎</button>
+                    <button type="button" title="删除" data-rule-key="${key}" data-rule-index="${index}">×</button>
+                  </span>
                 </li>
-              `
-            )
+              `;
+            })
             .join("") || `<li><span>暂无内容。</span></li>`
         }
       </ul>
@@ -220,11 +305,99 @@ function renderRuleSection(title, key, items) {
   `;
 }
 
+function renderChecklist() {
+  if (state.checklist.length === 0) {
+    els.checklistView.innerHTML = `<p class="empty">从下方收藏里点「＋ 加入今晚」，按聚会顺序排成复习清单。</p>`;
+    els.checklistProgress.textContent = "还没有游戏";
+    els.invalidCount.textContent = "";
+    els.progressBar.style.width = "0";
+    return;
+  }
+
+  let liveDone = 0;
+  let liveTotal = 0;
+  let staleTotal = 0;
+
+  const blocks = state.checklist.map((entry, gameIndex) => {
+    const game = state.games.find((item) => item.id === entry.gameId);
+    const liveItems = entry.items.filter((item) => !item.stale);
+    const staleItems = entry.items.filter((item) => item.stale);
+    liveTotal += liveItems.length;
+    liveDone += liveItems.filter((item) => item.checked).length;
+    staleTotal += staleItems.length;
+
+    const renderItem = (item, itemIndex) => {
+      const id = `chk-${gameIndex}-${itemIndex}-${item.key}`;
+      if (item.stale) {
+        return `
+          <li class="check-item stale">
+            <input type="checkbox" disabled />
+            <label for="${id}">
+              <span class="tag">${ruleLabels[item.key] || "规则"}</span>
+              <span class="text">${escapeHtml(item.text)}</span>
+              <span class="stale-note">
+                ${entry.removed ? "该桌游已删除" : "此规则已被删除或内容已修改"}，原勾选已失效
+              </span>
+            </label>
+            <button type="button" class="icon-btn" title="移除"
+              data-remove-item="${gameIndex}" data-remove-index="${itemIndex}">×</button>
+          </li>
+        `;
+      }
+      return `
+        <li class="check-item ${item.checked ? "checked" : ""}">
+          <input type="checkbox" id="${id}" ${item.checked ? "checked" : ""}
+            data-check-game="${gameIndex}" data-check-index="${itemIndex}" />
+          <label for="${id}">
+            <span class="tag">${ruleLabels[item.key]}</span>
+            <span class="text">${escapeHtml(item.text)}</span>
+          </label>
+        </li>
+      `;
+    };
+
+    const allIndices = [...entry.items.keys()];
+    const staleIndices = new Set(entry.items.map((item, index) => (item.stale ? index : -1)).filter((index) => index >= 0));
+    const renderByIdx = (index) => renderItem(entry.items[index], index);
+
+    return `
+      <article class="checklist-game ${staleItems.length ? "invalid" : ""}">
+        <div class="checklist-game-head">
+          <div class="order-controls">
+            <button type="button" class="icon-btn" title="上移" data-move="${gameIndex}" data-dir="-1" ${gameIndex === 0 ? "disabled" : ""}>↑</button>
+            <button type="button" class="icon-btn" title="下移" data-move="${gameIndex}" data-dir="1" ${gameIndex === state.checklist.length - 1 ? "disabled" : ""}>↓</button>
+          </div>
+          <h3 data-select-game="${entry.gameId}">
+            ${gameIndex + 1}. ${game ? escapeHtml(game.name) : "已删除的桌游"}
+          </h3>
+          <button type="button" class="icon-btn" title="移出清单" data-remove-game="${gameIndex}">×</button>
+        </div>
+        ${entry.removed ? `<p class="game-removed">该桌游已从收藏中删除，下面的勾选已失效。</p>` : ""}
+        <ul class="rule-list">
+          ${allIndices.filter((index) => !staleIndices.has(index)).map(renderByIdx).join("")}
+        </ul>
+        ${
+          staleItems.length
+            ? `<div class="stale-group"><ul class="rule-list">${allIndices.filter((index) => staleIndices.has(index)).map(renderByIdx).join("")}</ul></div>`
+            : ""
+        }
+      </article>
+    `;
+  });
+
+  els.checklistView.innerHTML = blocks.join("");
+  els.checklistProgress.textContent = `进度 ${liveDone}/${liveTotal}`;
+  els.invalidCount.textContent = staleTotal ? `${staleTotal} 条失效待处理` : "";
+  els.progressBar.style.width = `${liveTotal ? Math.round((liveDone / liveTotal) * 100) : 0}%`;
+}
+
 function renderAll() {
+  syncChecklist();
   saveState();
   renderSummary();
   renderList();
   renderDetail();
+  renderChecklist();
 }
 
 function readFileAsDataUrl(file) {
@@ -288,27 +461,120 @@ els.sortMode.addEventListener("change", renderAll);
 els.gameForm.addEventListener("submit", addGame);
 
 els.gameList.addEventListener("click", (event) => {
+  const toggle = event.target.closest("[data-toggle-checklist]");
+  if (toggle) {
+    event.stopPropagation();
+    toggleChecklistGame(toggle.dataset.toggleChecklist);
+    return;
+  }
   const card = event.target.closest("[data-game-id]");
   if (!card) return;
   state.selectedId = card.dataset.gameId;
   renderAll();
 });
 
-els.detailView.addEventListener("submit", (event) => {
-  if (event.target.id !== "ruleForm") return;
-  event.preventDefault();
-  const game = state.games.find((item) => item.id === state.selectedId);
-  if (!game) return;
-  const key = document.querySelector("#ruleTypeInput").value;
-  const text = document.querySelector("#ruleTextInput").value.trim();
-  if (!text) return;
-  game[key].push(text);
+els.clearChecklistBtn.addEventListener("click", () => {
+  if (!state.checklist.length) return;
+  if (confirm("清空今晚复习清单？勾选进度会一并清除。")) {
+    state.checklist = [];
+    renderAll();
+  }
+});
+
+els.checklistView.addEventListener("click", (event) => {
+  const moveBtn = event.target.closest("[data-move]");
+  if (moveBtn) {
+    const index = Number(moveBtn.dataset.move);
+    const dir = Number(moveBtn.dataset.dir);
+    const target = index + dir;
+    if (target < 0 || target >= state.checklist.length) return;
+    [state.checklist[index], state.checklist[target]] = [state.checklist[target], state.checklist[index]];
+    renderAll();
+    return;
+  }
+
+  const removeGameBtn = event.target.closest("[data-remove-game]");
+  if (removeGameBtn) {
+    state.checklist.splice(Number(removeGameBtn.dataset.removeGame), 1);
+    renderAll();
+    return;
+  }
+
+  const removeItemBtn = event.target.closest("[data-remove-item]");
+  if (removeItemBtn) {
+    const entry = state.checklist[Number(removeItemBtn.dataset.removeItem)];
+    entry.items.splice(Number(removeItemBtn.dataset.removeIndex), 1);
+    renderAll();
+    return;
+  }
+
+  const title = event.target.closest("[data-select-game]");
+  if (title) {
+    state.selectedId = title.dataset.selectGame;
+    renderAll();
+  }
+});
+
+els.checklistView.addEventListener("change", (event) => {
+  const checkbox = event.target.closest("[data-check-game]");
+  if (!checkbox) return;
+  const entry = state.checklist[Number(checkbox.dataset.checkGame)];
+  const item = entry?.items[Number(checkbox.dataset.checkIndex)];
+  if (!item || item.stale) return;
+  item.checked = checkbox.checked;
   renderAll();
 });
 
+els.detailView.addEventListener("submit", (event) => {
+  if (event.target.id === "ruleForm") {
+    event.preventDefault();
+    const game = state.games.find((item) => item.id === state.selectedId);
+    if (!game) return;
+    const key = document.querySelector("#ruleTypeInput").value;
+    const text = document.querySelector("#ruleTextInput").value.trim();
+    if (!text) return;
+    game[key].push(text);
+    renderAll();
+    return;
+  }
+
+  const editor = event.target.closest(".rule-editor");
+  if (editor) {
+    event.preventDefault();
+    const game = state.games.find((item) => item.id === state.selectedId);
+    if (!game) return;
+    const key = editor.dataset.ruleKey;
+    const index = Number(editor.dataset.ruleIndex);
+    const text = editor.querySelector("[data-edit-textarea]").value.trim();
+    if (text) game[key][index] = text;
+    editingRule = null;
+    renderAll();
+  }
+});
+
 els.detailView.addEventListener("click", (event) => {
-  const ruleButton = event.target.closest("[data-rule-key]");
+  const editCancel = event.target.closest("[data-edit-cancel]");
+  if (editCancel) {
+    editingRule = null;
+    renderAll();
+    return;
+  }
+
+  const editButton = event.target.closest("[data-rule-edit-key]");
+  if (editButton) {
+    editingRule = { key: editButton.dataset.ruleEditKey, index: Number(editButton.dataset.ruleEditIndex) };
+    renderDetail();
+    const textarea = els.detailView.querySelector("[data-edit-textarea]");
+    if (textarea) {
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    }
+    return;
+  }
+
+  const ruleButton = event.target.closest("button[data-rule-key]");
   const playedButton = event.target.closest("#playedTodayBtn");
+  const toggleButton = event.target.closest("#toggleChecklistDetailBtn");
   const deleteButton = event.target.closest("#deleteGameBtn");
   const game = state.games.find((item) => item.id === state.selectedId);
   if (!game) return;
@@ -317,6 +583,7 @@ els.detailView.addEventListener("click", (event) => {
     const key = ruleButton.dataset.ruleKey;
     const index = Number(ruleButton.dataset.ruleIndex);
     game[key].splice(index, 1);
+    editingRule = null;
     renderAll();
   }
 
@@ -325,9 +592,15 @@ els.detailView.addEventListener("click", (event) => {
     renderAll();
   }
 
+  if (toggleButton) {
+    toggleChecklistGame(game.id);
+  }
+
   if (deleteButton) {
     state.games = state.games.filter((item) => item.id !== game.id);
+    state.checklist = state.checklist.filter((entry) => entry.gameId !== game.id);
     state.selectedId = state.games[0]?.id || "";
+    editingRule = null;
     renderAll();
   }
 });

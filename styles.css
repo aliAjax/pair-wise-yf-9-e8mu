@@ -369,6 +369,208 @@ label {
   flex: 1;
 }
 
+/* 今晚复习清单 */
+.tonight-panel {
+  margin-bottom: 16px;
+}
+
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.checklist-progress {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: #e7ebef;
+  overflow: hidden;
+  margin: 10px 0 14px;
+}
+
+.progress-bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--green);
+  transition: width 0.2s ease;
+}
+
+.checklist {
+  display: grid;
+  gap: 12px;
+}
+
+.checklist-game {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px 12px;
+}
+
+.checklist-game.invalid {
+  border-color: rgba(179, 72, 72, 0.45);
+  background: rgba(179, 72, 72, 0.04);
+}
+
+.checklist-game-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.checklist-game-head h3 {
+  margin: 0;
+  flex: 1 1 auto;
+  cursor: pointer;
+}
+
+.checklist-game-head h3:hover {
+  color: var(--blue);
+}
+
+.order-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.order-controls button,
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.check-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border-bottom: 1px solid #eef0f2;
+  padding: 6px 0;
+  line-height: 1.45;
+}
+
+.check-item:last-child {
+  border-bottom: 0;
+}
+
+.check-item input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  margin-top: 3px;
+  flex: 0 0 auto;
+  accent-color: var(--green);
+}
+
+.check-item .tag {
+  border-radius: 4px;
+  background: rgba(49, 95, 134, 0.1);
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 800;
+  padding: 1px 6px;
+  margin-right: 2px;
+  white-space: nowrap;
+}
+
+.check-item.checked .text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.check-item.stale {
+  color: var(--red);
+}
+
+.check-item.stale .text {
+  text-decoration: line-through;
+}
+
+.stale-note {
+  display: block;
+  color: var(--red);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.game-removed {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  margin: 0 0 8px;
+}
+
+.stale-group {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
+/* 规则行内编辑 */
+.rule-text {
+  flex: 1 1 auto;
+}
+
+.rule-row-actions {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.rule-editor {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+}
+
+.rule-editor .editor-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.rule-editor .editor-actions button {
+  width: auto;
+  height: auto;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+/* 收藏卡片上的加入按钮 */
+.game-card {
+  position: relative;
+}
+
+.add-tonight {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.add-tonight.in-list {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+
 @media (max-width: 1160px) {
   .topbar {
     align-items: stretch;
